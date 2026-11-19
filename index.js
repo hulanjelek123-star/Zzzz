@@ -11,7 +11,7 @@ const UA = process.env.USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 
 const CATALOG_TTL = Number(process.env.CACHE_CATALOG_SECONDS || 600) * 1000;
 const DETAIL_TTL = Number(process.env.CACHE_DETAIL_SECONDS || 1800) * 1000;
 const STREAM_TTL = Number(process.env.CACHE_STREAM_SECONDS || 180) * 1000;
-const FRESH_STREAM_TTL = Number(process.env.CACHE_FRESH_STREAM_SECONDS || 25) * 1000;
+const FRESH_STREAM_TTL = Number(process.env.CACHE_FRESH_STREAM_SECONDS || 20) * 1000;
 const PAGE_SIZE = 20;
 const PAGE_LIMIT = 100;
 const MINOR_TERMS = /\b(loli(?:con)?|shota(?:con)?|underage|child porn|young girl|young boy)\b/i;
@@ -42,13 +42,34 @@ const PROVIDER_GENRES = {
     'Tsundere','Ugly Bastard','Uncensored','Urination','Vampire','Vanilla','Virgins','Watersports',
     'Widow','Womb Tattoo','X-Ray','Yuri',
   ],
+  xvideos: [
+    'Amateur','Anal','Asian','ASMR','Babe','BBW','BDSM','Big Ass','Big Cock','Big Tits',
+    'Bisexual','Blonde','Blowjob','Brunette','Creampie','Cumshot','Double Penetration','Ebony',
+    'Fetish','Fisting','Futanari','Gangbang','Gape','Gay','Hentai','Interracial','Latina',
+    'Lesbian','Lingerie','Massage','Masturbation','Mature','MILF','Oiled','Orgy','POV',
+    'Public','Redhead','Shemale','Solo','Squirt','Stockings','Teen','Threesome','Toys','VR Porn',
+  ],
+  pornhub: [
+    'Amateur','Anal','Asian','Babe','BBW','BDSM','Behind The Scenes','Big Ass','Big Dick','Big Tits',
+    'Bisexual','Blonde','Blowjob','Bondage','Brunette','Bukakke','Casting','College','Compilation',
+    'Cosplay','Creampie','Cumshot','Double Penetration','Ebony','Euro','Feet','Female Orgasm',
+    'Fetish','Fisting','French','Funny','Gangbang','Gay','German','Hardcore','HD Porn','Hentai',
+    'Indian','Interracial','Italian','Japanese','Korean','Latina','Lesbian','Massage','Masturbation',
+    'Mature','MILF','Muscular Men','Old/Young','Orgy','Party','Pornstar','POV','Public',
+    'Pussy Licking','Reality','Redhead','Role Play','Romantic','Rough Sex','School','SFW',
+    'Small Tits','Solo Female','Solo Male','Squirt','Step Fantasy','Striptease','Teen','Threesome',
+    'Toys','Transgender','Verified Amateurs','Verified Couples','Vintage','VR Porn','Webcam',
+  ],
+  live: [
+    'Asian','Latina','Ebony','MILF','Teen','BBW','Blonde','Brunette','Big Tits','Big Ass',
+    'Anal','Lovense','Squirt','Fetish','BDSM','VR','HD','New',
+  ],
 };
 
 const DEFAULT_HEADERS = {
   'User-Agent': UA,
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.9',
-  'Upgrade-Insecure-Requests': '1',
 };
 
 const http = axios.create({
@@ -72,6 +93,14 @@ function extractCookieHeader(responseHeaders, existingCookies = '') {
     if (idx > 0) jar.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim());
   }
   return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+function getCookieValue(cookieHeader, name) {
+  for (const part of String(cookieHeader || '').split(';')) {
+    const idx = part.indexOf('=');
+    if (idx > 0 && part.slice(0, idx).trim() === name) return part.slice(idx + 1).trim();
+  }
+  return '';
 }
 
 const cache = new Map();
@@ -401,6 +430,46 @@ function genreSlug(config, genre) {
   return config.id === 'hentaimama' ? (aliases[raw] || slugify(genre)) : slugify(genre);
 }
 
+function xvideosCategorySlug(genre) {
+  const g = clean(genre);
+  const map = {
+    'ASMR': 'ASMR',
+    'BBW': 'BBW',
+    'BDSM': 'BDSM',
+    'MILF': 'MILF',
+    'POV': 'POV',
+    'VR Porn': 'VR_Porn',
+  };
+  if (map[g]) return map[g];
+  return g.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('_');
+}
+
+function pornhubCategorySlug(genre) {
+  const raw = clean(genre).toLowerCase();
+  const map = {
+    'old/young': 'old-young',
+    'pussy licking': 'pussy-licking',
+    'behind the scenes': 'behind-the-scenes',
+    'verified amateurs': 'verified-amateurs',
+    'verified couples': 'verified-couples',
+    'solo female': 'solo-female',
+    'solo male': 'solo-male',
+    'step fantasy': 'step-fantasy',
+    'role play': 'role-play',
+    'rough sex': 'rough-sex',
+    'small tits': 'small-tits',
+    'big tits': 'big-tits',
+    'big ass': 'big-ass',
+    'big dick': 'big-dick',
+    'double penetration': 'double-penetration',
+    'female orgasm': 'female-orgasm',
+    'hd porn': 'hd-porn',
+    'muscular men': 'muscular-men',
+    'vr porn': 'vr-porn',
+  };
+  return map[raw] || slugify(genre);
+}
+
 function candidatePagesEnhanced(config, { search, genre, page = 1 }) {
   const base = config.base.replace(/\/$/, '');
   const n = Math.max(1, Number(page) || 1);
@@ -409,12 +478,25 @@ function candidatePagesEnhanced(config, { search, genre, page = 1 }) {
 
   if (config.id === 'xvideos') {
     if (search) return [...new Set([`${base}/?k=${q}&p=${n - 1}`, `${base}/?k=${q}`])];
+    if (genre) {
+      const cat = encodeURIComponent(xvideosCategorySlug(genre));
+      const tag = encodeURIComponent(slugify(genre));
+      return [...new Set(n === 1
+        ? [`${base}/c/${cat}`, `${base}/tags/${tag}`]
+        : [`${base}/c/${cat}/${n - 1}`, `${base}/tags/${tag}/${n - 1}`])];
+    }
     return [...new Set(n === 1
       ? [`${base}/new/`, `${base}/`]
       : [`${base}/new/${n}/`, `${base}/new/?p=${n - 1}`, `${base}/?p=${n - 1}`])];
   }
   if (config.id === 'pornhub') {
     if (search) return [...new Set([`${base}/video/search?search=${q}&o=mr&page=${n}`, `${base}/video/search?search=${q}`])];
+    if (genre) {
+      const phSlug = encodeURIComponent(pornhubCategorySlug(genre));
+      return [...new Set(n === 1
+        ? [`${base}/categories/${phSlug}?o=cm`, `${base}/categories/${phSlug}`, `${base}/video/search?search=${encodeURIComponent(clean(genre))}&o=mr`]
+        : [`${base}/categories/${phSlug}?o=cm&page=${n}`, `${base}/categories/${phSlug}?page=${n}`, `${base}/video/search?search=${encodeURIComponent(clean(genre))}&o=mr&page=${n}`])];
+    }
     return [...new Set(n === 1
       ? [`${base}/video?o=cm`, `${base}/video`]
       : [`${base}/video?o=cm&page=${n}`, `${base}/video?page=${n}`])];
@@ -480,6 +562,7 @@ function candidatePages(config, args) {
 }
 
 async function discoverGenreRoute(config, genre) {
+  if (!['hentaimama', 'hentaigasm'].includes(config.id)) return '';
   const wanted = normalizedTextKey(genre);
   if (!wanted) return '';
   return cached(`genre-route-map:${config.id}`, config.id === 'hentaimama' ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000, async () => {
@@ -812,38 +895,12 @@ function normalizePlayerText(value) {
     .replace(/&amp;/gi, '&').replace(/&#038;/g, '&').replace(/&quot;/g, '"');
 }
 
-// Safe Dean Edwards p,a,c,k,e,d unpacker (zero eval) for embedded players.
-function unpackDeanEdwards(source) {
-  const unpacked = [];
-  const packerRe = /eval\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*[dr]\s*\)\s*\{[\s\S]*?\}\s*\(\s*(['"])((?:\\.|(?!\1)[\s\S])*?)\1\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"])((?:\\.|(?!\5)[\s\S])*?)\5\.split\(\s*['"]\|['"]\s*\)/g;
-  for (const match of String(source || '').matchAll(packerRe)) {
-    try {
-      const payload = match[2].replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-      const radix = Number.parseInt(match[3], 10);
-      let count = Number.parseInt(match[4], 10);
-      const keywords = match[6].split('|');
-      const encodeBase = c => (c < radix ? '' : encodeBase(Math.floor(c / radix))) +
-        ((c % radix) > 35 ? String.fromCharCode((c % radix) + 29) : (c % radix).toString(36));
-      const dict = new Map();
-      while (count--) {
-        const key = encodeBase(count);
-        dict.set(key, keywords[count] || key);
-      }
-      const expanded = payload.replace(/\b\w+\b/g, word => (dict.has(word) ? dict.get(word) : word));
-      if (expanded) unpacked.push(expanded);
-    } catch {}
-  }
-  return unpacked.join('\n');
-}
-
 const MEDIA_URL_RE = /\.(?:m3u8|mp4|m4v|mpd|webm)(?:[?#]|$)/i;
 function expandEncodedPlayerText(value) {
   let source = normalizePlayerText(value)
     .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&#0?39;/gi, "'")
     .replace(/&#x2f;/gi, '/').replace(/&#x3a;/gi, ':');
   try { source += '\n' + decodeURIComponent(source.replace(/\+/g, '%20')); } catch {}
-  const packed = unpackDeanEdwards(source);
-  if (packed) source += '\n' + normalizePlayerText(packed);
   const decoded = [];
   const base64Candidates = source.match(/(?:["'`])([A-Za-z0-9+/_=-]{40,})(?:["'`])/g) || [];
   for (const wrapped of base64Candidates.slice(0, 150)) {
@@ -894,7 +951,7 @@ function candidateStreams(html, base) {
   const embeds = new Set();
   const addEmbed = raw => {
     const src = absUrl(normalizePlayerText(raw), base);
-    if (!src || isNoise(src) || isAdOrTracker(src) || /\.(?:jpe?g|png|gif|webp|svg)(?:[?#]|$)/i.test(src)) return;
+    if (!src || isNoise(src) || /\.(?:jpe?g|png|gif|webp|svg)(?:[?#]|$)/i.test(src)) return;
     try {
       const parsed = new URL(src);
       if (parsed.protocol === 'http:' || parsed.protocol === 'https:') embeds.add(src);
@@ -915,7 +972,7 @@ function candidateStreams(html, base) {
     const node = $(el);
     for (const key of ['src', 'data-src', 'data-embed', 'data-player', 'data-video']) {
       const src = absUrl(node.attr(key), base);
-      if (!src || isNoise(src) || isAdOrTracker(src) || /^(?:about:|javascript:|data:)/i.test(src)) continue;
+      if (!src || isNoise(src) || /^(?:about:|javascript:|data:)/i.test(src)) continue;
       try {
         const parsed = new URL(src);
         if (sameProviderHost(src, base) && /\/(?:category|genre|tag|search|login|register)\//i.test(parsed.pathname)) continue;
@@ -929,12 +986,15 @@ function candidateStreams(html, base) {
 
 function qualityFromLabel(value, allowBareNumber = false) {
   const text = String(value || '');
-  const dimension = text.match(/(?:^|[^0-9])\d{3,5}\s*[x×]\s*(4320|2160|1440|1080|720|576|540|480|360|240)(?:$|[^0-9])/i);
-  if (dimension) return `${dimension[1]}p`;
-  const match = text.match(/(?:^|[^0-9])(4320|2160|1440|1080|720|576|540|480|360|240)\s*p\b/i);
+  const dimension = text.match(/(?:^|[^0-9])\d{3,5}\s*[x×]\s*(4320|2160|1440|1088|1080|720|576|544|540|480|360|250|240|144)(?:$|[^0-9])/i);
+  if (dimension) {
+    const h = Number(dimension[1]);
+    return `${h === 1088 ? 1080 : h === 544 ? 540 : h}p`;
+  }
+  const match = text.match(/(?:^|[^0-9])(4320|2160|1440|1080|720|576|540|480|360|250|240|144)\s*p\b/i);
   if (match) return `${match[1]}p`;
   if (allowBareNumber) {
-    const bare = text.trim().match(/^(4320|2160|1440|1080|720|576|540|480|360|240)$/);
+    const bare = text.trim().match(/^(4320|2160|1440|1080|720|576|540|480|360|250|240|144)$/);
     if (bare) return `${bare[1]}p`;
   }
   return '';
@@ -1029,35 +1089,68 @@ function posterShapeFor(item, selectedGenre = '') {
   return 'landscape';
 }
 
+function qualityFromHlsInf(line, uri = '') {
+  const byLabel = qualityFromLabel(line);
+  if (byLabel) return byLabel;
+  const nameMatch = /NAME\s*=\s*["']?(\d{3,4})p?["']?/i.exec(line);
+  if (nameMatch) return `${nameMatch[1]}p`;
+  const resMatch = /RESOLUTION\s*=\s*\d+\s*[x×]\s*(\d{3,4})/i.exec(line);
+  if (resMatch) {
+    const h = Number(resMatch[1]);
+    if (h >= 2100) return '2160p';
+    if (h >= 1400) return '1440p';
+    if (h >= 1000) return '1080p';
+    if (h >= 700) return '720p';
+    if (h >= 460) return '480p';
+    if (h >= 340) return '360p';
+    if (h >= 230) return '240p';
+    return `${h}p`;
+  }
+  const uriQuality = qualityFromLabel(uri);
+  if (uriQuality) return uriQuality;
+  const bwMatch = /BANDWIDTH\s*=\s*(\d+)/i.exec(line);
+  if (bwMatch) {
+    const bw = Number(bwMatch[1]);
+    if (bw >= 3500000) return '1080p';
+    if (bw >= 1500000) return '720p';
+    if (bw >= 750000) return '480p';
+    if (bw >= 350000) return '360p';
+    return '240p';
+  }
+  return '';
+}
+
 function parseHlsVariantPlaylist(playlist, baseUrl) {
   const lines = String(playlist || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   if (!lines.some(line => line === '#EXTM3U')) return [];
   const variants = [];
   const seenQualities = new Set();
   const seenUrls = new Set();
-  let pendingQuality = '';
+  let pendingInf = '';
   for (const line of lines) {
     if (/^#EXT-X-STREAM-INF:/i.test(line)) {
-      pendingQuality = qualityFromLabel(line);
+      pendingInf = line;
       continue;
     }
-    if (!pendingQuality || line.startsWith('#')) continue;
+    if (!pendingInf) continue;
+    if (line.startsWith('#')) continue;
+    const inf = pendingInf;
+    pendingInf = '';
     try {
       const url = new URL(line, baseUrl).href;
-      if (!/^https?:$/.test(new URL(url).protocol) || seenQualities.has(pendingQuality) || seenUrls.has(url)) {
-        pendingQuality = '';
+      const quality = qualityFromHlsInf(inf, url);
+      if (!quality || !/^https?:$/.test(new URL(url).protocol) || seenQualities.has(quality) || seenUrls.has(url)) {
         continue;
       }
-      variants.push({ quality: pendingQuality, url });
-      seenQualities.add(pendingQuality);
+      variants.push({ quality, url });
+      seenQualities.add(quality);
       seenUrls.add(url);
     } catch {}
-    pendingQuality = '';
   }
   return variants.sort((a, b) => Number(b.quality.replace('p', '')) - Number(a.quality.replace('p', '')));
 }
 
-async function expandHlsQualityStreams(streams) {
+async function expandHlsQualityStreams(streams, { keepMasterFallback = false } = {}) {
   const sourceStreams = Array.isArray(streams) ? streams : [];
   const expanded = new Map();
   let checked = 0;
@@ -1071,7 +1164,7 @@ async function expandHlsQualityStreams(streams) {
       const finalUrl = response.request?.res?.responseUrl || response.request?.responseURL || stream.url;
       const variants = parseHlsVariantPlaylist(String(response.data || ''), finalUrl);
       if (!variants.length) return;
-      expanded.set(index, variants.map(variant => {
+      const mapped = variants.map(variant => {
         let filename = '';
         try { filename = decodeURIComponent(new URL(variant.url).pathname.split('/').pop() || ''); } catch {}
         return {
@@ -1084,7 +1177,14 @@ async function expandHlsQualityStreams(streams) {
             ...(filename ? { filename } : {}),
           },
         };
-      }));
+      });
+      if (keepMasterFallback) {
+        mapped.push({
+          ...stream,
+          title: 'Auto · HLS',
+        });
+      }
+      expanded.set(index, mapped);
     } catch {}
   }));
   return [...expanded.entries()].sort((a, b) => a[0] - b[0]).flatMap(([, group]) => group).slice(0, 20);
@@ -1111,25 +1211,18 @@ function scorePlayerUrl(url) {
 function isHentaiMamaMp4(url) {
   return /\.mp4(?:[?#]|$)/i.test(String(url || ''));
 }
-function isHentaiMamaPlayableMedia(url) {
-  return MEDIA_URL_RE.test(String(url || ''));
-}
 function isHentaiMama1080pMp4(url, source = '') {
   const label = String(source || '').trim();
   return isHentaiMamaMp4(url) && (
     detectExplicitQuality(url, source) === '1080p' || /^1080p(?:\s|[·|_-]|$)/i.test(label)
   );
 }
-function hentaiMamaQualityRank(stream) {
-  const quality = qualityFromLabel(stream?.title || '') || detectExplicitQuality(stream?.url || '', stream?.title || '');
-  const value = Number.parseInt(quality, 10);
-  const formatBonus = /\.mp4(?:[?#]|$)/i.test(stream?.url || '') ? 1 : 0;
-  return (Number.isFinite(value) ? value * 10 : 0) + formatBonus;
-}
 function sortHentaiMamaStreams(streams) {
-  return (streams || [])
-    .filter(stream => stream?.url && isHentaiMamaPlayableMedia(stream.url))
-    .sort((a, b) => hentaiMamaQualityRank(b) - hentaiMamaQualityRank(a));
+  return (streams || []).sort((a, b) => {
+    const a1080 = isHentaiMama1080pMp4(a.url, a.title) ? 2 : isHentaiMamaMp4(a.url) ? 1 : 0;
+    const b1080 = isHentaiMama1080pMp4(b.url, b.title) ? 2 : isHentaiMamaMp4(b.url) ? 1 : 0;
+    return b1080 - a1080;
+  });
 }
 
 function streamObject(providerName, url, referer, preserveHentaigasm = false, source = '') {
@@ -1174,11 +1267,10 @@ async function resolveStreams(providerName, pageUrl, providerId = '') {
     if (!current?.url || visited.has(current.url) || current.depth > maxDepth) continue;
     visited.add(current.url);
     try {
-      const html = current.html ?? await getHtmlFresh(current.url, current.referer);
+      const html = current.html ?? await getHtml(current.url, current.referer);
       const found = candidateStreams(html, current.url);
       for (const mediaUrl of found.media) {
         if (isAdOrTracker(mediaUrl) || streamUrls.has(mediaUrl)) continue;
-        if (providerId === 'hentaimama' && !isHentaiMamaPlayableMedia(mediaUrl)) continue;
         streamUrls.add(mediaUrl);
         try { streams.push(streamObject(providerName, mediaUrl, current.url, providerId === 'hentaigasm', html)); } catch {}
       }
@@ -1310,13 +1402,7 @@ function extractHentaiMamaAjaxCandidates(html) {
     }
   }
 
-  // Fallback: extract post ID from WordPress body class `postid-12345` or hidden inputs.
-  const postIdMatch = page.match(/\bpostid-(\d+)\b/i) || page.match(/name=["'](?:a|post_id)["'][^>]*value=["'](\d+)["']/i);
-  if (postIdMatch) {
-    addCandidate('get_player_contents', postIdMatch[1]);
-  }
-
-  return found.slice(0, 5);
+  return found.slice(0, 4);
 }
 
 function buildHentaiMamaAjaxBody(candidate) {
@@ -1348,24 +1434,20 @@ async function resolveHentaiMamaStreams(episodeUrl) {
   const seen = new Set();
   const addSources = (value, referer) => {
     for (const url of extractPlayerMedia(value, referer)) {
-      if (!isHentaiMamaPlayableMedia(url) || seen.has(url)) continue;
+      if (seen.has(url)) continue;
       seen.add(url);
       streams.push(streamObject('HentaiMama', url, referer, false, value));
     }
   };
-  const addPlayerFrames = async (frames, referer, cookies = '') => {
+  const addPlayerFrames = async (frames, referer) => {
     for (const frameUrl of frames.slice(0, 6)) {
       try {
-        const response = await http.get(frameUrl, {
-          responseType: 'text',
-          headers: { Referer: referer, ...(cookies ? { Cookie: cookies } : {}) },
-        });
-        const playerHtml = String(response.data || '');
+        const playerHtml = await getHtml(frameUrl, referer);
         addSources(playerHtml, frameUrl);
         if (!streams.length) {
           const nested = await resolveStreams('HentaiMama', frameUrl, 'hentaimama');
           for (const stream of nested) {
-            if (isHentaiMamaPlayableMedia(stream.url) && !seen.has(stream.url)) {
+            if (!seen.has(stream.url)) {
               seen.add(stream.url);
               streams.push(stream);
             }
@@ -1379,9 +1461,7 @@ async function resolveHentaiMamaStreams(episodeUrl) {
   };
 
   try {
-    const pageResponse = await http.get(episodeUrl, { responseType: 'text' });
-    const pageHtml = String(pageResponse.data || '');
-    const cookies = extractCookieHeader(pageResponse.headers);
+    const pageHtml = await getHtml(episodeUrl, base);
 
     addSources(pageHtml, episodeUrl);
     if (streams.length) return sortHentaiMamaStreams(await expandHlsQualityStreams(streams)).slice(0, 12);
@@ -1393,10 +1473,8 @@ async function resolveHentaiMamaStreams(episodeUrl) {
         const ajaxResponse = await http.post(`${base}/wp-admin/admin-ajax.php`, postBody, {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
             Referer: episodeUrl,
             Origin: base,
-            ...(cookies ? { Cookie: cookies } : {}),
             'X-Requested-With': 'XMLHttpRequest',
           },
         });
@@ -1404,7 +1482,7 @@ async function resolveHentaiMamaStreams(episodeUrl) {
         addSources(payload, episodeUrl);
         if (streams.length) return sortHentaiMamaStreams(await expandHlsQualityStreams(streams)).slice(0, 12);
         const frames = extractPlayerFrames(payload, base);
-        if (frames.length) await addPlayerFrames(frames, episodeUrl, cookies);
+        if (frames.length) await addPlayerFrames(frames, episodeUrl);
         if (streams.length) return sortHentaiMamaStreams(await expandHlsQualityStreams(streams)).slice(0, 12);
       } catch (e) {
         console.warn(`[HentaiMama] AJAX candidate ${candidate.action}/${candidate.a} failed: ${e.code || e.response?.status || e.message}`);
@@ -1412,12 +1490,12 @@ async function resolveHentaiMamaStreams(episodeUrl) {
     }
 
     const pageFrames = extractPlayerFrames(pageHtml, episodeUrl);
-    if (pageFrames.length) await addPlayerFrames(pageFrames, episodeUrl, cookies);
+    if (pageFrames.length) await addPlayerFrames(pageFrames, episodeUrl);
     if (streams.length) return sortHentaiMamaStreams(await expandHlsQualityStreams(streams)).slice(0, 12);
 
     const nested = await resolveStreams('HentaiMama', episodeUrl, 'hentaimama');
     for (const stream of nested) {
-      if (isHentaiMamaPlayableMedia(stream.url) && !seen.has(stream.url)) {
+      if (!seen.has(stream.url)) {
         seen.add(stream.url);
         streams.push(stream);
       }
@@ -1429,14 +1507,6 @@ async function resolveHentaiMamaStreams(episodeUrl) {
 }
 
 const liveMetaCache = new Map();
-const VIDEO_SITE_EXTRA = [
-  { name: 'search', isRequired: false },
-  { name: 'skip', isRequired: false },
-];
-const LIVE_ROOM_EXTRA = [
-  { name: 'search', isRequired: false },
-  { name: 'skip', isRequired: false },
-];
 
 function unescapeMediaUrl(value) {
   let out = String(value || '').trim();
@@ -1444,11 +1514,34 @@ function unescapeMediaUrl(value) {
   return out.replace(/\\u0026/gi, '&').replace(/\\\//g, '/').replace(/&amp;/gi, '&').trim();
 }
 
-// Safely evaluate JS string concatenations (with /* comments */) used by obfuscated players.
+// yt-dlp PornHubIE style multi-line JS variable + string concatenation evaluator (zero eval).
 function evaluateJsStringConcat(expr, vars = {}) {
   const withoutComments = String(expr || '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
   if (!withoutComments) return '';
-  const parts = withoutComments.split('+').map(p => p.trim()).filter(Boolean);
+  const parts = [];
+  let current = '', quote = '', escaped = false;
+  for (let i = 0; i < withoutComments.length; i++) {
+    const ch = withoutComments[i];
+    if (quote) {
+      current += ch;
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '+') {
+      parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) parts.push(current.trim());
   if (!parts.length) return '';
   let out = '';
   for (const part of parts) {
@@ -1461,6 +1554,43 @@ function evaluateJsStringConcat(expr, vars = {}) {
     }
   }
   return out;
+}
+
+function collectObfuscatedJsVars(html) {
+  const vars = {};
+  const source = String(html || '');
+  // Match both `var a = "...", b = "...";` and single `var media_0 = ra + rb;` across multiple lines.
+  const stmtPattern = /(?:^|[;{}\n])\s*(?:(?:var|let|const)\s+)?([A-Za-z_$][\w$]*)\s*=\s*([^;{}]+?)(?=;|\n\s*(?:var|let|const|if|for|while|function)\b)/gs;
+  for (let pass = 0; pass < 3; pass++) {
+    let updated = false;
+    for (const match of source.matchAll(stmtPattern)) {
+      const name = match[1];
+      const rhs = match[2].trim();
+      if (!rhs || rhs.startsWith('{') || rhs.startsWith('[') || rhs.startsWith('function')) continue;
+      // Handle comma-separated declarators: `var a = "foo", b = "bar"`
+      if (!rhs.includes('+') && rhs.includes(',')) {
+        for (const piece of rhs.split(',')) {
+          const eq = piece.indexOf('=');
+          if (eq > 0) {
+            const k = piece.slice(0, eq).trim();
+            const v = evaluateJsStringConcat(piece.slice(eq + 1), vars);
+            if (/^[A-Za-z_$][\w$]*$/.test(k) && v && vars[k] !== v) {
+              vars[k] = v;
+              updated = true;
+            }
+          }
+        }
+        continue;
+      }
+      const val = evaluateJsStringConcat(rhs, vars);
+      if (val && vars[name] !== val) {
+        vars[name] = val;
+        updated = true;
+      }
+    }
+    if (!updated) break;
+  }
+  return vars;
 }
 
 function parseAssignedObject(source, variablePattern) {
@@ -1510,10 +1640,14 @@ function sortQualityStreams(streams) {
   return [...streams].sort((a, b) => {
     const qa = Number((qualityFromLabel(a.title) || detectExplicitQuality(a.url, a.title)).replace('p', '')) || 0;
     const qb = Number((qualityFromLabel(b.title) || detectExplicitQuality(b.url, b.title)).replace('p', '')) || 0;
-    return qb - qa;
+    if (qb !== qa) return qb - qa;
+    const aMp4 = /\.mp4(?:[?#]|$)/i.test(a.url) ? 1 : 0;
+    const bMp4 = /\.mp4(?:[?#]|$)/i.test(b.url) ? 1 : 0;
+    return bMp4 - aMp4;
   });
 }
 
+// yt-dlp XVideosIE extractor pattern: setVideoHLS + setVideoUrl1080p + setVideoUrlHigh + setVideoUrlLow + ld+json.
 async function resolveXVideosStreams(pageUrl) {
   const html = await getHtmlFresh(pageUrl, 'https://www.xvideos.com/');
   const streams = [];
@@ -1527,11 +1661,29 @@ async function resolveXVideosStreams(pageUrl) {
 
   for (const match of html.matchAll(/(?:html5player\s*\.\s*)?setVideo(HLS|UrlHigh|UrlLow|Url1080p)\s*\(\s*(['"`])((?:\\.|(?!\2)[\s\S])*)\2\s*\)/gi)) {
     const kind = match[1].toLowerCase();
-    const label = kind === 'url1080p' ? '1080p' : kind === 'urllow' ? 'low' : '';
-    add(match[3], label, html);
+    const rawUrl = unescapeMediaUrl(match[3]);
+    const urlQuality = detectExplicitQuality(rawUrl, '');
+    const label = kind === 'url1080p'
+      ? '1080p'
+      : kind === 'urlhigh'
+        ? (urlQuality || '720p')
+        : kind === 'urllow'
+          ? (urlQuality || '360p')
+          : '';
+    add(rawUrl, label, html);
   }
-  for (const match of html.matchAll(/(?:video_url|contentUrl|src|file)\s*["']?\s*[:=]\s*["'](https?:[^"']+\.(?:mp4|m3u8|mpd)[^"']*)["']/gi)) add(match[1], '', html);
-  return sortQualityStreams(await expandHlsQualityStreams(streams));
+  for (const match of html.matchAll(/(?:video_url|contentUrl|src|file)\s*["']?\s*[:=]\s*["'](https?:[^"']+\.(?:mp4|m3u8|mpd)[^"']*)["']/gi)) {
+    add(match[1], '', html);
+  }
+  return sortQualityStreams(await expandHlsQualityStreams(streams, { keepMasterFallback: true }));
+}
+
+function normalizePornHubQuality(rawQuality) {
+  if (Array.isArray(rawQuality)) {
+    const nums = rawQuality.map(v => Number.parseInt(String(v), 10)).filter(Number.isFinite);
+    return nums.length ? `${Math.max(...nums)}p` : '';
+  }
+  return qualityFromLabel(String(rawQuality || ''), true);
 }
 
 function extractPornHubDefinitions(html) {
@@ -1544,99 +1696,123 @@ function extractPornHubDefinitions(html) {
   return parseAssignedObject(html, /(?:var|let|const)\s+flashvars(?:_\d+)?\s*=\s*/i) || {};
 }
 
+// yt-dlp PornHubIE extractor pattern: flashvars mediaDefinitions + /video/get_media + obfuscated JS media_* vars + embed fallback.
 async function resolvePornHubStreams(pageUrl) {
   const parsed = new URL(pageUrl);
   const host = parsed.hostname.replace(/^www\./i, '');
   const origin = `https://www.${host}`;
+  const viewkey = parsed.searchParams.get('viewkey') || parsed.pathname.match(/\/embed\/([a-z0-9]+)/i)?.[1] || '';
   const baseHeaders = {
     Referer: `${origin}/`,
     Origin: origin,
-    Cookie: 'age_verified=1; accessAgeDisclaimerPH=1; accessAgeDisclaimerUK=1; accessPH=1; platform=pc',
+    Cookie: 'age_verified=1; accessAgeDisclaimerPH=1; accessAgeDisclaimerUK=1; accessPH=1; cookieConsent=3; platform=pc',
   };
-  const page = await getPageFresh(pageUrl, `${origin}/`, baseHeaders);
-  let html = page.html;
-  const headers = {
-    ...baseHeaders,
-    ...(page.cookies ? { Cookie: page.cookies } : {}),
-    'Accept': 'application/json, text/javascript, */*; q=0.01',
-    'X-Requested-With': 'XMLHttpRequest',
-  };
-  const flash = extractPornHubDefinitions(html);
+
   const streams = [];
   const seen = new Set();
-  const add = (raw, quality = '', source = html) => {
+  const add = (raw, quality = '', source = '') => {
     const url = absUrl(unescapeMediaUrl(raw), pageUrl);
     if (!url || seen.has(url) || !MEDIA_URL_RE.test(url) || isAdOrTracker(url)) return;
     seen.add(url);
     try { streams.push(directMediaStream('PornHub', url, pageUrl, quality, source)); } catch {}
   };
 
-  const definitions = Array.isArray(flash.mediaDefinitions) ? flash.mediaDefinitions : [];
-  for (const definition of definitions) {
-    if (!definition || typeof definition !== 'object') continue;
-    let videoUrl = definition.videoUrl || definition.url;
-    const quality = definition.quality || definition.height || definition.label || '';
-    if (!videoUrl) continue;
-    videoUrl = absUrl(videoUrl, pageUrl) || videoUrl;
-    if (/\/video\/get_media(?:[/?]|$)/i.test(videoUrl)) {
-      try {
-        const response = await http.get(videoUrl, { headers, responseType: 'json' });
-        const mediaList = Array.isArray(response.data) ? response.data : response.data?.mediaDefinitions || [];
-        for (const media of mediaList) {
-          if (media?.videoUrl) add(media.videoUrl, media.quality || media.height || quality, JSON.stringify(media));
-        }
-      } catch (e) { console.warn(`[PornHub] media endpoint failed: ${e.response?.status || e.message}`); }
-    } else add(videoUrl, quality, JSON.stringify(definition));
-  }
+  const parsePornHubPage = async (targetUrl, currentHeaders) => {
+    const page = await getPageFresh(targetUrl, `${origin}/`, currentHeaders);
+    const html = page.html;
+    const reqHeaders = {
+      ...currentHeaders,
+      ...(page.cookies ? { Cookie: page.cookies } : {}),
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'X-Requested-With': 'XMLHttpRequest',
+    };
 
-  // Reconstruct obfuscated JS string variables (`var ra123 = "..."; var media_0 = ra123 + "...";`).
-  if (!streams.length) {
-    const vars = {};
-    for (const stmt of String(html).matchAll(/(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*([^;\n]+);/g)) {
-      const val = evaluateJsStringConcat(stmt[2], vars);
-      if (val) vars[stmt[1]] = val;
-    }
-    for (const [key, value] of Object.entries(vars)) {
-      if (/^(?:media|quality|qualityItems)_/i.test(key) && /^https?:\/\//i.test(value)) {
-        add(value, qualityFromLabel(key), `${key}=${value}`);
+    const flash = extractPornHubDefinitions(html);
+    const definitions = Array.isArray(flash.mediaDefinitions) ? flash.mediaDefinitions : [];
+    for (const definition of definitions) {
+      if (!definition || typeof definition !== 'object') continue;
+      let videoUrl = definition.videoUrl || definition.url;
+      const quality = normalizePornHubQuality(definition.quality ?? definition.height ?? definition.label);
+      if (!videoUrl) continue;
+      videoUrl = absUrl(videoUrl, targetUrl) || videoUrl;
+      if (/\/video\/get_media(?:[/?]|$)/i.test(videoUrl)) {
+        try {
+          const response = await http.get(videoUrl, { headers: reqHeaders, responseType: 'json' });
+          const mediaList = Array.isArray(response.data) ? response.data : response.data?.mediaDefinitions || [];
+          for (const media of mediaList) {
+            if (media?.videoUrl) {
+              const q = normalizePornHubQuality(media.quality ?? media.height) || quality;
+              add(media.videoUrl, q, JSON.stringify(media));
+            }
+          }
+        } catch (e) {
+          console.warn(`[PornHub] media endpoint failed: ${e.response?.status || e.message}`);
+        }
+      } else {
+        add(videoUrl, quality, JSON.stringify(definition));
       }
     }
-    const assignments = [...String(html).matchAll(/(?:var\s+)?((?:media|quality|qualityItems)_\w+)\s*=\s*([^;]+);/gi)];
-    for (const match of assignments) {
-      let value = match[2].trim();
-      try { value = JSON.parse(value); } catch { value = evaluateJsStringConcat(value, vars) || value.replace(/^['"]|['"]$/g, ''); }
-      if (Array.isArray(value)) value.forEach(item => add(item?.url || item?.videoUrl, item?.quality || item?.height, JSON.stringify(item)));
-      else if (typeof value === 'string') add(value, '', match[0]);
+
+    if (!streams.length) {
+      const vars = collectObfuscatedJsVars(html);
+      for (const [key, value] of Object.entries(vars)) {
+        if (/^(?:media|quality|qualityItems)_/i.test(key) && /^https?:\/\//i.test(value)) {
+          add(value, qualityFromLabel(key), `${key}=${value}`);
+        }
+      }
+      for (const match of String(html).matchAll(/qualityItems_\d+\s*=\s*(\[[\s\S]*?\]);/gi)) {
+        try {
+          const items = JSON.parse(match[1]);
+          if (Array.isArray(items)) {
+            for (const item of items) add(item?.url || item?.videoUrl, normalizePornHubQuality(item?.quality ?? item?.height), JSON.stringify(item));
+          }
+        } catch {}
+      }
+    }
+
+    return { html, cookies: page.cookies };
+  };
+
+  let firstCookies = baseHeaders.Cookie;
+  try {
+    const first = await parsePornHubPage(pageUrl, baseHeaders);
+    if (first.cookies) firstCookies = first.cookies;
+  } catch (e) {
+    console.warn(`[PornHub] primary page failed: ${e.response?.status || e.message}`);
+  }
+
+  // Fallback 1: PornHub embed player page (lighter player without portal age-gate wrapper).
+  if (!streams.length && viewkey) {
+    try {
+      await parsePornHubPage(`${origin}/embed/${encodeURIComponent(viewkey)}`, { ...baseHeaders, Cookie: firstCookies });
+    } catch (e) {
+      console.warn(`[PornHub] embed fallback failed: ${e.response?.status || e.message}`);
     }
   }
 
+  // Fallback 2: TV player user-agent / platform=tv mediastring.
   if (!streams.length) {
     try {
-      const tvHeaders = { ...baseHeaders, Cookie: (page.cookies || baseHeaders.Cookie).replace('platform=pc', 'platform=tv') };
+      const tvHeaders = { ...baseHeaders, Cookie: firstCookies.replace('platform=pc', 'platform=tv') };
       const tvHtml = await getHtmlFresh(pageUrl, `${origin}/`, tvHeaders);
       const mediaString = /mediastring\s*[:=]\s*(['"`])((?:\\.|(?!\1)[\s\S])*)\1/i.exec(tvHtml);
       if (mediaString) add(mediaString[2], '', tvHtml);
       if (!streams.length) {
         for (const match of tvHtml.matchAll(/https?:[^\s"'<>\\]+\.(?:mp4|m3u8|mpd)(?:\?[^\s"'<>\\]*)?/gi)) add(match[0], '', tvHtml);
       }
-      html = tvHtml;
-    } catch (e) { console.warn(`[PornHub] TV-player fallback failed: ${e.response?.status || e.message}`); }
+    } catch (e) {
+      console.warn(`[PornHub] TV-player fallback failed: ${e.response?.status || e.message}`);
+    }
   }
 
-  return sortQualityStreams(await expandHlsQualityStreams(streams));
+  return sortQualityStreams(await expandHlsQualityStreams(streams, { keepMasterFallback: true }));
 }
 
+// yt-dlp ChaturbateIE extractor pattern: initialRoomDossier JS unicode decoding + get_edge_hls_url_ajax with CSRF cookie.
 async function resolveChaturbateStreams(roomUrl) {
   const username = new URL(roomUrl).pathname.split('/').filter(Boolean)[0];
   if (!username) return [];
-  const referer = `https://chaturbate.com/${username}/`;
-  const headers = {
-    Referer: referer,
-    Origin: 'https://chaturbate.com',
-    'X-Requested-With': 'XMLHttpRequest',
-    Accept: 'application/json, text/javascript, */*; q=0.01',
-    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-  };
+  const referer = `https://chaturbate.com/${encodeURIComponent(username)}/`;
   const streams = [];
   const seen = new Set();
   const add = (raw, label = '', source = '') => {
@@ -1646,62 +1822,101 @@ async function resolveChaturbateStreams(roomUrl) {
     try { streams.push(directMediaStream('Chaturbate', url, referer, label, source)); } catch {}
   };
 
+  let cookies = 'agreeterms=1';
   try {
-    const body = new URLSearchParams({
-      room_slug: username,
-      bandwidth: 'high',
-      current_edge: '',
-      current_hls_protocol: 'm3u8',
-    }).toString();
-    const response = await http.post('https://chaturbate.com/get_edge_hls_url_ajax/', body, { headers });
-    if (response.data?.url) add(response.data.url, '', JSON.stringify(response.data));
-  } catch (e) { console.warn(`[Chaturbate] HLS API failed: ${e.response?.status || e.message}`); }
+    const page = await getPageFresh(referer, 'https://chaturbate.com/', { Cookie: cookies });
+    if (page.cookies) cookies = page.cookies;
+    const html = page.html;
+
+    const dossier = /initialRoomDossier\s*=\s*(['"])((?:\\.|(?!\1)[\s\S])*)\1/i.exec(html);
+    if (dossier) {
+      try {
+        const decodedJson = JSON.parse(`"${dossier[2].replace(/"/g, '\\"')}"`);
+        const data = JSON.parse(decodedJson);
+        if (data?.hls_source) add(data.hls_source, '', decodedJson);
+      } catch {}
+    }
+    if (!streams.length) {
+      for (const match of html.matchAll(/https?:[^\s"'<>\\]+\.m3u8(?:\?[^\s"'<>\\]*)?/gi)) add(match[0], '', html);
+    }
+  } catch (e) {
+    console.warn(`[Chaturbate] room page fetch failed: ${e.response?.status || e.message}`);
+  }
 
   if (!streams.length) {
     try {
-      const html = await getHtmlFresh(referer, 'https://chaturbate.com/');
-      const dossier = /initialRoomDossier\s*=\s*(['"])([\s\S]*?)\1/i.exec(html);
-      if (dossier) {
-        try {
-          const data = JSON.parse(dossier[2].replace(/\\u0026/gi, '&').replace(/\\u0022/gi, '"').replace(/\\u005c/gi, '\\'));
-          if (data.hls_source) add(data.hls_source, '', JSON.stringify(data));
-        } catch {}
-      }
-      if (!streams.length) {
-        for (const match of html.matchAll(/https?:[^\s"'<>\\]+\.m3u8(?:\?[^\s"'<>\\]*)?/gi)) add(match[0], '', html);
-      }
-    } catch (e) { console.warn(`[Chaturbate] room page fallback failed: ${e.response?.status || e.message}`); }
+      const csrf = getCookieValue(cookies, 'csrftoken');
+      const headers = {
+        Referer: referer,
+        Origin: 'https://chaturbate.com',
+        Cookie: cookies,
+        'X-Requested-With': 'XMLHttpRequest',
+        ...(csrf ? { 'X-CSRFToken': csrf } : {}),
+        Accept: 'application/json, text/javascript, */*; q=0.01',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      };
+      const body = new URLSearchParams({
+        room_slug: username,
+        bandwidth: 'high',
+        current_edge: '',
+        current_hls_protocol: 'm3u8',
+      }).toString();
+      const response = await http.post('https://chaturbate.com/get_edge_hls_url_ajax/', body, { headers });
+      if (response.data?.url) add(response.data.url, '', JSON.stringify(response.data));
+    } catch (e) {
+      console.warn(`[Chaturbate] HLS API failed: ${e.response?.status || e.message}`);
+    }
   }
-  return sortQualityStreams(await expandHlsQualityStreams(streams));
+
+  return sortQualityStreams(await expandHlsQualityStreams(streams, { keepMasterFallback: true }));
 }
 
+// yt-dlp StripchatIE + Streamlink extractor pattern: /api/front/v2/models/username/{user}/cam + edge-hls master manifest.
 async function resolveStripchatStreams(roomUrl) {
   const username = new URL(roomUrl).pathname.split('/').filter(Boolean)[0];
   if (!username) return [];
   const referer = `https://stripchat.com/${encodeURIComponent(username)}`;
   const streams = [];
+  const seen = new Set();
+  const add = (raw, label = '', source = '') => {
+    const url = absUrl(unescapeMediaUrl(raw), referer);
+    if (!url || seen.has(url) || !/\.m3u8(?:[?#]|$)/i.test(url)) return;
+    seen.add(url);
+    try { streams.push(directMediaStream('Stripchat', url, referer, label, source)); } catch {}
+  };
 
-  // Primary: Stripchat public v2 cam JSON API.
-  try {
-    const apiRes = await http.get(`https://stripchat.com/api/front/v2/models/username/${encodeURIComponent(username)}/cam`, {
-      headers: {
-        Referer: referer,
-        Origin: 'https://stripchat.com',
-        Accept: 'application/json',
-      },
-    });
-    const cam = apiRes.data?.cam || {};
-    const user = apiRes.data?.user?.user || {};
-    if (user.isLive === false || cam.show) return [];
-    const streamName = cam.streamName || user.id;
-    const servers = cam.viewServers || {};
-    const host = servers['flashphoner-hls'] || servers['hls'] || Object.values(servers)[0];
-    if (streamName && host) {
-      const manifestUrl = `https://edge-hls.${host}/hls/${streamName}/master/${streamName}_auto.m3u8`;
-      streams.push(directMediaStream('Stripchat', manifestUrl, referer, '', JSON.stringify(apiRes.data)));
+  const apiEndpoints = [
+    `https://stripchat.com/api/front/v2/models/username/${encodeURIComponent(username)}/cam`,
+    `https://stripchat.com/api/front/models/username/${encodeURIComponent(username)}/cam`,
+  ];
+
+  for (const endpoint of apiEndpoints) {
+    if (streams.length) break;
+    try {
+      const apiRes = await http.get(endpoint, {
+        headers: {
+          Referer: referer,
+          Origin: 'https://stripchat.com',
+          Accept: 'application/json',
+        },
+      });
+      const cam = apiRes.data?.cam || {};
+      const user = apiRes.data?.user?.user || apiRes.data?.user || {};
+      const status = String(user.status || '').toLowerCase();
+      if (user.isLive === false || ['off', 'offline', 'private', 'groupshow'].includes(status)) return [];
+
+      const streamName = cam.streamName || user.id;
+      const servers = cam.viewServers || {};
+      const rawHost = cam.hlsServerUrl || servers['flashphoner-hls'] || servers['hls'] || Object.values(servers)[0];
+      const host = String(rawHost || '').replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+      if (streamName && host) {
+        const edgeBase = host.startsWith('edge-hls.') ? `https://${host}` : `https://edge-hls.${host}`;
+        add(`${edgeBase}/hls/${streamName}/master/${streamName}_auto.m3u8`, '', JSON.stringify(apiRes.data));
+        add(`${edgeBase}/hls/${streamName}/master/${streamName}.m3u8`, '', JSON.stringify(apiRes.data));
+      }
+    } catch (e) {
+      console.warn(`[Stripchat] cam API (${endpoint}) failed: ${e.response?.status || e.message}`);
     }
-  } catch (e) {
-    console.warn(`[Stripchat] cam API fallback (${username}): ${e.response?.status || e.message}`);
   }
 
   if (!streams.length) {
@@ -1709,7 +1924,8 @@ async function resolveStripchatStreams(roomUrl) {
       const html = await getHtmlFresh(referer, 'https://stripchat.com/');
       const state = extractJsObject(html, '__PRELOADED_STATE__') || {};
       const viewCam = state.viewCam || {};
-      if (viewCam.show || viewCam.model?.isLive === false) return [];
+      const modelStatus = String(viewCam.model?.status || '').toLowerCase();
+      if (viewCam.model?.isLive === false || ['off', 'offline', 'private', 'groupshow'].includes(modelStatus)) return [];
       const modelId = viewCam.model?.id;
       const configRoots = [state.configV3?.static, state.config?.data, state.config, state];
       const hosts = new Set();
@@ -1725,24 +1941,21 @@ async function resolveStripchatStreams(roomUrl) {
       }
       for (const host of hosts) {
         if (!modelId) break;
-        const manifestUrl = `https://edge-hls.${host}/hls/${modelId}/master/${modelId}_auto.m3u8`;
-        try {
-          streams.push(directMediaStream('Stripchat', manifestUrl, referer, '', JSON.stringify(state)));
-          break;
-        } catch {}
+        const cleanHost = String(host).replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+        const edgeBase = cleanHost.startsWith('edge-hls.') ? `https://${cleanHost}` : `https://edge-hls.${cleanHost}`;
+        add(`${edgeBase}/hls/${modelId}/master/${modelId}_auto.m3u8`, '', JSON.stringify(state));
+        break;
       }
       if (!streams.length) {
         for (const raw of extractMedia(html, referer)) {
-          if (/\.m3u8(?:[?#]|$)/i.test(raw)) {
-            try { streams.push(directMediaStream('Stripchat', raw, referer, '', html)); } catch {}
-          }
+          if (/\.m3u8(?:[?#]|$)/i.test(raw)) add(raw, '', html);
         }
       }
     } catch (e) {
       console.warn(`[Stripchat] HTML fallback failed (${username}): ${e.response?.status || e.message}`);
     }
   }
-  return sortQualityStreams(await expandHlsQualityStreams(streams));
+  return sortQualityStreams(await expandHlsQualityStreams(streams, { keepMasterFallback: true }));
 }
 
 const LIVE_RESERVED_PATHS = new Set([
@@ -1755,6 +1968,24 @@ function parseLiveRoomCards(config, html, base) {
   const $ = cheerio.load(html);
   const out = [];
   const seen = new Set();
+
+  // Chaturbate room list items often have <li class="room_list_room" data-room="username">
+  if (config.platform === 'chaturbate') {
+    $('li.room_list_room[data-room], [data-room]').each((_, el) => {
+      const $li = $(el);
+      const username = clean($li.attr('data-room'));
+      if (!username || LIVE_RESERVED_PATHS.has(username.toLowerCase())) return;
+      const poster = cardPoster($, $li, $li.find('a').first(), base)
+        || `https://roomimg.stream.highwebmedia.com/ri/${encodeURIComponent(username)}.jpg`;
+      const description = clean($li.find('.subject, [class*="subject"]').first().text());
+      const item = { key: `${config.roomBase}${encodeURIComponent(username)}`, name: username, poster, description, genres: ['Live'] };
+      if (blocked(item) || seen.has(item.key)) return;
+      seen.add(item.key);
+      out.push(item);
+      liveMetaCache.set(`${config.id}|${item.key}`, item);
+    });
+    if (out.length) return out.slice(0, PAGE_LIMIT);
+  }
 
   $('a[href]').each((_, el) => {
     const $a = $(el);
@@ -1785,25 +2016,38 @@ function parseLiveRoomCards(config, html, base) {
   return out;
 }
 
-async function fetchLiveRoomsApi(config, { search = '', page = 1 } = {}) {
+function collectStripchatModels(payload) {
+  const list = [];
+  if (Array.isArray(payload?.models)) list.push(...payload.models);
+  if (Array.isArray(payload?.blocks)) {
+    for (const block of payload.blocks) {
+      if (Array.isArray(block?.models)) list.push(...block.models);
+    }
+  }
+  return list;
+}
+
+async function fetchLiveRoomsApi(config, { search = '', genre = '', page = 1 } = {}) {
   const n = Math.max(1, Number(page) || 1);
   const offset = (n - 1) * PAGE_SIZE;
   const query = clean(search);
+  const tagSlug = slugify(genre);
   const items = [];
   const seen = new Set();
 
   if (config.platform === 'stripchat') {
-    const tag = config.liveCategory === 'couples' ? 'couples' : 'girls';
+    const primaryTag = config.liveCategory === 'couples' ? 'couples' : 'girls';
     const params = new URLSearchParams({
       limit: String(PAGE_SIZE),
       offset: String(offset),
-      primaryTag: tag,
+      primaryTag,
+      ...(tagSlug ? { filterGroupTags: JSON.stringify([[tagSlug]]) } : {}),
       ...(query ? { query } : {}),
     });
     const res = await http.get(`https://stripchat.com/api/front/models?${params.toString()}`, {
       headers: { Referer: config.listUrl, Origin: 'https://stripchat.com', Accept: 'application/json' },
     });
-    const models = Array.isArray(res.data?.models) ? res.data.models : [];
+    const models = collectStripchatModels(res.data);
     for (const m of models) {
       const username = clean(m?.username);
       if (!username) continue;
@@ -1814,7 +2058,7 @@ async function fetchLiveRoomsApi(config, { search = '', page = 1 } = {}) {
         name: clean(m.displayName || username),
         poster,
         description: clean(m.goalMessage || m.status || ''),
-        genres: ['Live'],
+        genres: ['Live', ...(genre ? [clean(genre)] : [])],
       };
       if (blocked(item) || seen.has(item.key)) continue;
       seen.add(item.key);
@@ -1826,27 +2070,74 @@ async function fetchLiveRoomsApi(config, { search = '', page = 1 } = {}) {
 
   if (config.platform === 'chaturbate') {
     const gender = config.liveCategory === 'couples' ? 'c' : 'f';
-    const params = new URLSearchParams({
-      enable_recommendations: 'true',
-      genders: gender,
-      limit: String(PAGE_SIZE),
-      offset: String(offset),
-      ...(query ? { keywords: query } : {}),
+    const cbTag = tagSlug.replace(/-/g, '');
+
+    // Method 1: Chaturbate internal roomlist API (with agreeterms cookie + XHR header).
+    try {
+      const params = new URLSearchParams({
+        enable_recommendations: 'true',
+        genders: gender,
+        limit: String(PAGE_SIZE),
+        offset: String(offset),
+        ...(cbTag ? { hashtags: cbTag } : {}),
+        ...(query ? { keywords: query } : {}),
+      });
+      const res = await http.get(`https://chaturbate.com/api/ts/roomlist/room-list/?${params.toString()}`, {
+        headers: {
+          Referer: config.listUrl,
+          Origin: 'https://chaturbate.com',
+          Cookie: 'agreeterms=1',
+          'X-Requested-With': 'XMLHttpRequest',
+          Accept: 'application/json, text/javascript, */*; q=0.01',
+        },
+      });
+      const rooms = Array.isArray(res.data?.rooms) ? res.data.rooms : [];
+      for (const r of rooms) {
+        const username = clean(r?.username);
+        if (!username) continue;
+        const poster = absUrl(r.img, config.base) || `https://roomimg.stream.highwebmedia.com/ri/${encodeURIComponent(username)}.jpg`;
+        const item = {
+          key: `${config.roomBase}${encodeURIComponent(username)}`,
+          name: username,
+          poster,
+          description: clean(r.subject || ''),
+          genres: ['Live', ...(genre ? [clean(genre)] : [])],
+        };
+        if (blocked(item) || seen.has(item.key)) continue;
+        seen.add(item.key);
+        items.push(item);
+        liveMetaCache.set(`${config.id}|${item.key}`, item);
+      }
+      if (items.length) return items;
+    } catch (e) {
+      console.warn(`[${config.name}] roomlist API failed, trying public online rooms feed: ${e.response?.status || e.message}`);
+    }
+
+    // Method 2: Chaturbate public online rooms JSON feed (no CSRF required).
+    const pubRes = await http.get('https://chaturbate.com/affiliates/api/onlinerooms/?format=json&wm=3pm2A', {
+      headers: { Accept: 'application/json' },
     });
-    const res = await http.get(`https://chaturbate.com/api/ts/roomlist/room-list/?${params.toString()}`, {
-      headers: { Referer: config.listUrl, Origin: 'https://chaturbate.com', Accept: 'application/json' },
+    const allRooms = Array.isArray(pubRes.data) ? pubRes.data : [];
+    const filtered = allRooms.filter(r => {
+      if (!r?.username) return false;
+      if (String(r.gender || '').toLowerCase() !== gender) return false;
+      if (query && !normalizedTextKey(`${r.username} ${r.room_subject || ''}`).includes(normalizedTextKey(query))) return false;
+      if (cbTag) {
+        const tags = Array.isArray(r.tags) ? r.tags.map(t => slugify(t).replace(/-/g, '')) : [];
+        if (!tags.includes(cbTag) && !normalizedTextKey(r.room_subject || '').includes(cbTag)) return false;
+      }
+      return true;
     });
-    const rooms = Array.isArray(res.data?.rooms) ? res.data.rooms : [];
-    for (const r of rooms) {
-      const username = clean(r?.username);
-      if (!username) continue;
-      const poster = absUrl(r.img, config.base) || `https://roomimg.stream.highwebmedia.com/ri/${encodeURIComponent(username)}.jpg`;
+    for (const r of filtered.slice(offset, offset + PAGE_SIZE)) {
+      const username = clean(r.username);
+      const poster = absUrl(r.image_url_360x270 || r.image_url, config.base)
+        || `https://roomimg.stream.highwebmedia.com/ri/${encodeURIComponent(username)}.jpg`;
       const item = {
         key: `${config.roomBase}${encodeURIComponent(username)}`,
         name: username,
         poster,
-        description: clean(r.subject || ''),
-        genres: ['Live'],
+        description: clean(r.room_subject || ''),
+        genres: ['Live', ...(genre ? [clean(genre)] : [])],
       };
       if (blocked(item) || seen.has(item.key)) continue;
       seen.add(item.key);
@@ -1863,26 +2154,28 @@ function liveProvider(config) {
   return {
     ...config,
     live: true,
-    catalogExtra: LIVE_ROOM_EXTRA,
-    async catalog({ search = '', page = 1 } = {}) {
+    async catalog({ search = '', genre = '', page = 1 } = {}) {
       const query = clean(search).toLowerCase();
+      const tag = clean(genre).toLowerCase();
       const n = Math.max(1, Number(page) || 1);
-      return cached(`live-catalog:${config.id}:${n}:${query}`, FRESH_STREAM_TTL, async () => {
+      return cached(`live-catalog:${config.id}:${n}:${tag}:${query}`, FRESH_STREAM_TTL, async () => {
         try {
-          const apiItems = await fetchLiveRoomsApi(config, { search, page: n });
+          const apiItems = await fetchLiveRoomsApi(config, { search, genre, page: n });
           if (apiItems.length) return apiItems;
         } catch (e) {
           console.warn(`[${config.name}] live JSON API fallback: ${e.response?.status || e.message}`);
         }
-        const url = `${config.listUrl}${config.listUrl.includes('?') ? '&' : '?'}page=${n}`;
-        const html = await getHtmlFresh(url, config.listUrl, config.headers || {});
+        const tagPath = tag ? (config.platform === 'chaturbate' ? `tag/${slugify(tag).replace(/-/g, '')}/` : `girls/${slugify(tag)}`) : '';
+        const baseList = tagPath ? `${config.base}/${tagPath}` : config.listUrl;
+        const url = `${baseList}${baseList.includes('?') ? '&' : '?'}page=${n}`;
+        const html = await getHtmlFresh(url, config.listUrl, { Cookie: 'agreeterms=1', ...(config.headers || {}) });
         return parseLiveRoomCards(config, html, config.listUrl).filter(item => !query || normalizedTextKey(item.name).includes(normalizedTextKey(query)));
       });
     },
     async meta(key) {
       const cachedMeta = liveMetaCache.get(`${config.id}|${key}`);
       if (cachedMeta) return { name: cachedMeta.name, poster: cachedMeta.poster, background: cachedMeta.poster, description: cachedMeta.description, genres: ['Live'], episodes: [{ key, title: 'Live' }] };
-      const html = await getHtmlFresh(key, config.listUrl, config.headers || {});
+      const html = await getHtmlFresh(key, config.listUrl, { Cookie: 'agreeterms=1', ...(config.headers || {}) });
       const $ = cheerio.load(html);
       const name = metaText($, ['meta[property="og:title"]', 'h1', 'title']) || new URL(key).pathname.split('/').filter(Boolean)[0];
       const poster = metaText($, ['meta[property="og:image"]', 'meta[name="twitter:image"]']) || (config.platform === 'chaturbate' ? `https://roomimg.stream.highwebmedia.com/ri/${new URL(key).pathname.split('/').filter(Boolean)[0]}.jpg` : '');
@@ -1962,11 +2255,11 @@ const catalogs = Object.values(PROVIDERS).map(provider => ({
   type: TYPE,
   id: `hn-${provider.id}`,
   name: provider.name,
-  extra: provider.catalogExtra || (['hentaimama', 'hentaigasm'].includes(provider.id) ? makeExtra(PROVIDER_GENRES[provider.id]) : VIDEO_SITE_EXTRA),
+  extra: makeExtra(PROVIDER_GENRES[provider.id] || PROVIDER_GENRES.live),
 }));
 const manifest = {
   id: 'community.hentai.hub',
-  version: '2.8.0',
+  version: '2.9.0',
   name: 'Hentai',
   description: 'HentaiMama, Hentaigasm, XVideos, PornHub, Stripchat and Chaturbate catalogs. Adults 18+ only.',
   resources: ['catalog', 'meta', 'stream'],
@@ -2101,12 +2394,12 @@ builder.defineStreamHandler(async ({ id }) => {
   const parsed = parseId(id); if (!parsed) return { streams: [] };
   const provider = PROVIDERS[parsed.providerId]; if (!provider) return { streams: [] };
   try {
-    const ttl = parsed.providerId === 'hentaigasm' || provider.live ? FRESH_STREAM_TTL : (parsed.providerId === 'hentaimama' ? FRESH_STREAM_TTL : STREAM_TTL);
+    const ttl = parsed.providerId === 'hentaigasm' || provider.live ? FRESH_STREAM_TTL : STREAM_TTL;
     const streams = await cached(`streams:${parsed.providerId}:${parsed.key}`, ttl, async () => {
       const resolved = await provider.streams(parsed.key);
-      return parsed.providerId === 'hentaimama'
-        ? sortHentaiMamaStreams(resolved || [])
-        : expandHlsQualityStreams(resolved || []);
+      if (parsed.providerId === 'hentaimama') return sortHentaiMamaStreams(resolved || []);
+      if (['xvideos', 'pornhub'].includes(parsed.providerId) || provider.live) return resolved || [];
+      return expandHlsQualityStreams(resolved || []);
     });
     return { streams: (streams || []).slice(0, 20), cacheMaxAge: Math.floor(ttl / 1000) };
   } catch (e) {
@@ -2119,7 +2412,7 @@ const addonInterface = builder.getInterface();
 
 if (require.main === module) {
   serveHTTP(addonInterface, { port: PORT });
-  console.log(`Hentai v2.8.0 listening on port ${PORT}`);
+  console.log(`Hentai v2.9.0 listening on port ${PORT}`);
   console.log(`Manifest: http://127.0.0.1:${PORT}/manifest.json`);
 }
 
