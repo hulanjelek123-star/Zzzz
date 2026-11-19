@@ -1,19 +1,14 @@
 {
-  "name": "stremio-hentai-hub",
-  "version": "2.7.0",
-  "private": true,
-  "description": "Stremio adult video and live-cam addon with HentaiMama, Hentaigasm, XVideos, PornHub, Stripchat and Chaturbate catalogs",
+  "name": "community-hentai-hub",
+  "version": "2.9.0",
+  "description": "Stremio addon for HentaiMama, Hentaigasm, XVideos, PornHub, Stripchat, and Chaturbate.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "node --test test.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "axios": "^1.7.9",
     "cheerio": "^1.0.0",
     "stremio-addon-sdk": "^1.6.10"
-  },
-  "engines": {
-    "node": ">=18"
   }
 }
