@@ -229,43 +229,6 @@
           "isRequired": false
         },
         {
-          "name": "genre",
-          "isRequired": false,
-          "options": [
-            "Amateur",
-            "Anal",
-            "Asian",
-            "BBW",
-            "BDSM",
-            "Big Ass",
-            "Big Tits",
-            "Blonde",
-            "Blowjob",
-            "Brunette",
-            "Cosplay",
-            "Creampie",
-            "Cumshot",
-            "Ebony",
-            "Fetish",
-            "Hardcore",
-            "Hentai",
-            "Interracial",
-            "Japanese",
-            "Latina",
-            "Lesbian",
-            "Lingerie",
-            "Mature",
-            "MILF",
-            "POV",
-            "Public",
-            "Redhead",
-            "Solo",
-            "Squirt",
-            "Threesome"
-          ],
-          "optionsLimit": 1
-        },
-        {
           "name": "skip",
           "isRequired": false
         }
@@ -279,44 +242,6 @@
         {
           "name": "search",
           "isRequired": false
-        },
-        {
-          "name": "genre",
-          "isRequired": false,
-          "options": [
-            "Amateur",
-            "Anal",
-            "Asian",
-            "Babes",
-            "BBW",
-            "BDSM",
-            "Big Ass",
-            "Big Tits",
-            "Blonde",
-            "Blowjob",
-            "Brunette",
-            "Cosplay",
-            "Creampie",
-            "Cumshot",
-            "Ebony",
-            "Fetish",
-            "Hardcore",
-            "Hentai",
-            "Interracial",
-            "Japanese",
-            "Latina",
-            "Lesbian",
-            "Lingerie",
-            "Mature",
-            "MILF",
-            "POV",
-            "Public",
-            "Redhead",
-            "Solo Female",
-            "Squirt",
-            "Threesome"
-          ],
-          "optionsLimit": 1
         },
         {
           "name": "skip",
